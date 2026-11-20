@@ -1,0 +1,112 @@
+
+using Microsoft.Data.SqlClient;
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace ChudoObuv
+{
+    public partial class LoginForm : Form
+    {
+        private TextBox loginBox = new TextBox();
+
+        public LoginForm()
+        {
+            InitializeComponent();
+
+            Text = "Вход — Чудо Обувь";
+            Size = new Size(420, 300);
+            StartPosition = FormStartPosition.CenterScreen;
+
+            Label title = new Label
+            {
+                Text = "ЧУДО ОБУВЬ",
+                Font = new Font("Segoe UI", 20, FontStyle.Bold),
+                AutoSize = true,
+                Location = new Point(100, 25)
+            };
+
+            Label loginLabel = new Label
+            {
+                Text = "Введите логин:",
+                Location = new Point(50, 100),
+                AutoSize = true
+            };
+
+            loginBox.Location = new Point(50, 130);
+            loginBox.Width = 300;
+
+            Button loginButton = new Button
+            {
+                Text = "Войти",
+                Location = new Point(50, 175),
+                Size = new Size(140, 40)
+            };
+
+            Button guestButton = new Button
+            {
+                Text = "Продолжить без входа",
+                Location = new Point(200, 175),
+                Size = new Size(150, 40)
+            };
+
+            loginButton.Click += (s, e) => Login();
+            guestButton.Click += (s, e) => OpenMainForm(
+                "Неавторизованный пользователь");
+
+            Controls.Add(title);
+            Controls.Add(loginLabel);
+            Controls.Add(loginBox);
+            Controls.Add(loginButton);
+            Controls.Add(guestButton);
+        }
+
+        private void Login()
+        {
+            try
+            {
+                using (SqlConnection connection = Database.GetConnection())
+                {
+                    connection.Open();
+
+                    string query = @"
+                        SELECT [Роль]
+                        FROM dbo.Users
+                        WHERE [Логин] = @Login";
+
+                    using (SqlCommand command = new SqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue(
+                            "@Login", loginBox.Text.Trim());
+
+                        object result = command.ExecuteScalar();
+
+                        if (result == null)
+                        {
+                            MessageBox.Show("Пользователь не найден.");
+                            return;
+                        }
+
+                        OpenMainForm(result.ToString());
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка входа: " + ex.Message);
+            }
+        }
+
+        private void OpenMainForm(string role)
+        {
+            Hide();
+
+            using (Form1 form = new Form1(role))
+            {
+                form.ShowDialog();
+            }
+
+            Close();
+        }
+    }
+}
