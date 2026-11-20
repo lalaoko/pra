@@ -1,0 +1,70 @@
+
+using Microsoft.Data.SqlClient;
+using System;
+using System.Data;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace ChudoObuv
+{
+    public partial class UsersForm : Form
+    {
+        private DataGridView grid = new DataGridView();
+
+        public UsersForm()
+        {
+            InitializeComponent();
+
+            Text = "Пользователи";
+            Size = new Size(1000, 600);
+            StartPosition = FormStartPosition.CenterScreen;
+
+            grid.Dock = DockStyle.Fill;
+            grid.ReadOnly = true;
+            grid.AllowUserToAddRows = false;
+            grid.AutoSizeColumnsMode =
+                DataGridViewAutoSizeColumnsMode.Fill;
+
+            Button refreshButton = new Button
+            {
+                Text = "Обновить",
+                Dock = DockStyle.Top,
+                Height = 40
+            };
+
+            refreshButton.Click += (s, e) => LoadUsers();
+
+            Controls.Add(grid);
+            Controls.Add(refreshButton);
+
+            LoadUsers();
+        }
+
+        private void LoadUsers()
+        {
+            using (SqlConnection connection = Database.GetConnection())
+            {
+                connection.Open();
+
+                string query = @"
+                    SELECT
+                        UserID,
+                        [Фамилия],
+                        [Имя],
+                        [Отчетсво],
+                        [Логин],
+                        [Роль]
+                    FROM dbo.Users
+                    ORDER BY UserID";
+
+                using (SqlDataAdapter adapter =
+                    new SqlDataAdapter(query, connection))
+                {
+                    DataTable table = new DataTable();
+                    adapter.Fill(table);
+                    grid.DataSource = table;
+                }
+            }
+        }
+    }
+}
