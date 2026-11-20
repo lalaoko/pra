@@ -1,0 +1,713 @@
+
+using Microsoft.Data.SqlClient;
+using System;
+using System.Data;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace ChudoObuv
+{
+    public partial class OrdersForm : Form
+    {
+        private DataGridView ordersGrid = new DataGridView();
+        private DataGridView itemsGrid = new DataGridView();
+
+        public OrdersForm()
+        {
+            InitializeComponent();
+
+            Text = "Управление заказами";
+            Size = new Size(1200, 750);
+            StartPosition = FormStartPosition.CenterScreen;
+
+            FlowLayoutPanel panel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 90,
+                Padding = new Padding(5),
+                BackColor = Color.WhiteSmoke
+            };
+
+            AddButton(panel, "Обновить", LoadOrders);
+            AddButton(panel, "Изменить ФИО", EditCustomer);
+            AddButton(panel, "Изменить количество", ChangeQuantity);
+            AddButton(panel, "Добавить товар", AddItem);
+            AddButton(panel, "Удалить позицию", DeleteItem);
+            AddButton(panel, "Удалить заказ", DeleteOrder);
+
+            ConfigureGrid(ordersGrid);
+            ConfigureGrid(itemsGrid);
+
+            ordersGrid.SelectionChanged += (s, e) =>
+            {
+                if (ordersGrid.CurrentRow != null)
+                    LoadOrderItems();
+            };
+
+            SplitContainer split = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Horizontal,
+                SplitterDistance = 280
+            };
+
+            split.Panel1.Controls.Add(ordersGrid);
+            split.Panel2.Controls.Add(itemsGrid);
+
+            Controls.Add(split);
+            Controls.Add(panel);
+
+            LoadOrders();
+        }
+
+        private void AddButton(FlowLayoutPanel panel, string text, Action action)
+        {
+            Button button = new Button
+            {
+                Text = text,
+                Size = new Size(170, 38),
+                Margin = new Padding(5)
+            };
+
+            button.Click += (s, e) => action();
+            panel.Controls.Add(button);
+        }
+
+        private void ConfigureGrid(DataGridView grid)
+        {
+            grid.Dock = DockStyle.Fill;
+            grid.ReadOnly = true;
+            grid.AllowUserToAddRows = false;
+            grid.MultiSelect = false;
+            grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+        }
+
+        private int GetOrderID()
+        {
+            if (ordersGrid.CurrentRow == null)
+                return 0;
+
+            return Convert.ToInt32(
+                ordersGrid.CurrentRow.Cells["OrderID"].Value);
+        }
+
+        private int GetOrderItemID()
+        {
+            if (itemsGrid.CurrentRow == null)
+                return 0;
+
+            return Convert.ToInt32(
+                itemsGrid.CurrentRow.Cells["OrderItemID"].Value);
+        }
+
+        private void LoadOrders()
+        {
+            try
+            {
+                using (SqlConnection connection = Database.GetConnection())
+                {
+                    connection.Open();
+
+                    string query = @"
+                        SELECT
+                            OrderID,
+                            [Номер заказа],
+                            [Дата заказа],
+                            [ФИО],
+                            TotalAmount AS [Сумма заказа]
+                        FROM dbo.CustomerOrders
+                        ORDER BY OrderID DESC";
+
+                    using (SqlDataAdapter adapter =
+                        new SqlDataAdapter(query, connection))
+                    {
+                        DataTable table = new DataTable();
+                        adapter.Fill(table);
+                        ordersGrid.DataSource = table;
+                    }
+                }
+
+                LoadOrderItems();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка загрузки заказов: " + ex.Message);
+            }
+        }
+
+        private void LoadOrderItems()
+        {
+            int orderID = GetOrderID();
+
+            if (orderID == 0)
+            {
+                itemsGrid.DataSource = null;
+                return;
+            }
+
+            try
+            {
+                using (SqlConnection connection = Database.GetConnection())
+                {
+                    connection.Open();
+
+                    string query = @"
+                        SELECT
+                            oi.OrderItemID,
+                            oi.StockItemID,
+                            p.[Наименование товара],
+                            s.[Размер],
+                            oi.Quantity AS [Количество],
+                            oi.UnitPrice AS [Цена за пару],
+                            oi.Quantity * oi.UnitPrice AS [Стоимость]
+                        FROM dbo.OrderItems oi
+                        INNER JOIN dbo.Stock_Items si
+                            ON oi.StockItemID = si.StockItemID
+                        INNER JOIN dbo.Products p
+                            ON si.ProductID = p.ProductID
+                        LEFT JOIN dbo.Sizes s
+                            ON si.SizeID = s.SizeID
+                        WHERE oi.OrderID = @OrderID";
+
+                    using (SqlCommand command = new SqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@OrderID", orderID);
+
+                        using (SqlDataAdapter adapter = new SqlDataAdapter(command))
+                        {
+                            DataTable table = new DataTable();
+                            adapter.Fill(table);
+                            itemsGrid.DataSource = table;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка загрузки состава заказа: " + ex.Message);
+            }
+        }
+
+        private void EditCustomer()
+        {
+            int orderID = GetOrderID();
+
+            if (orderID == 0) return;
+
+            string oldName = Convert.ToString(
+                ordersGrid.CurrentRow.Cells["ФИО"].Value);
+
+            string newName = Microsoft.VisualBasic.Interaction.InputBox(
+                "Введите новое ФИО покупателя:",
+                "Изменение заказа",
+                oldName);
+
+            if (string.IsNullOrWhiteSpace(newName)) return;
+
+            try
+            {
+                using (SqlConnection connection = Database.GetConnection())
+                {
+                    connection.Open();
+
+                    string query = @"
+                        UPDATE dbo.CustomerOrders
+                        SET [ФИО] = @Name
+                        WHERE OrderID = @OrderID";
+
+                    using (SqlCommand command = new SqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@Name", newName.Trim());
+                        command.Parameters.AddWithValue("@OrderID", orderID);
+                        command.ExecuteNonQuery();
+                    }
+                }
+
+                LoadOrders();
+                MessageBox.Show("ФИО покупателя изменено.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка: " + ex.Message);
+            }
+        }
+
+        private void ChangeQuantity()
+        {
+            int itemID = GetOrderItemID();
+
+            if (itemID == 0)
+            {
+                MessageBox.Show("Выберите товар в составе заказа.");
+                return;
+            }
+
+            int oldQuantity = Convert.ToInt32(
+                itemsGrid.CurrentRow.Cells["Количество"].Value);
+
+            string input = Microsoft.VisualBasic.Interaction.InputBox(
+                "Введите новое количество пар:",
+                "Изменение количества",
+                oldQuantity.ToString());
+
+            if (!int.TryParse(input, out int newQuantity) || newQuantity <= 0)
+                return;
+
+            try
+            {
+                using (SqlConnection connection = Database.GetConnection())
+                {
+                    connection.Open();
+
+                    using (SqlTransaction transaction =
+                        connection.BeginTransaction())
+                    {
+                        try
+                        {
+                            int stockID;
+                            int currentQuantity;
+
+                            string select = @"
+                                SELECT StockItemID, Quantity
+                                FROM dbo.OrderItems WITH (UPDLOCK, HOLDLOCK)
+                                WHERE OrderItemID = @ID";
+
+                            using (SqlCommand command =
+                                new SqlCommand(select, connection, transaction))
+                            {
+                                command.Parameters.AddWithValue("@ID", itemID);
+
+                                using (SqlDataReader reader = command.ExecuteReader())
+                                {
+                                    if (!reader.Read())
+                                        throw new Exception("Позиция заказа не найдена.");
+
+                                    stockID = reader.GetInt32(0);
+                                    currentQuantity = reader.GetInt32(1);
+                                }
+                            }
+
+                            int difference = newQuantity - currentQuantity;
+
+                            if (difference > 0)
+                            {
+                                string updateStock = @"
+                                    UPDATE dbo.Stock_Items
+                                    SET [Количество доступное для заказа] =
+                                        [Количество доступное для заказа] - @Diff
+                                    WHERE StockItemID = @StockID
+                                    AND [Количество доступное для заказа] >= @Diff";
+
+                                using (SqlCommand command =
+                                    new SqlCommand(updateStock, connection, transaction))
+                                {
+                                    command.Parameters.AddWithValue("@Diff", difference);
+                                    command.Parameters.AddWithValue("@StockID", stockID);
+
+                                    if (command.ExecuteNonQuery() == 0)
+                                        throw new Exception("Недостаточно товара на складе.");
+                                }
+                            }
+                            else if (difference < 0)
+                            {
+                                string returnStock = @"
+                                    UPDATE dbo.Stock_Items
+                                    SET [Количество доступное для заказа] =
+                                        [Количество доступное для заказа] + @Diff
+                                    WHERE StockItemID = @StockID";
+
+                                using (SqlCommand command =
+                                    new SqlCommand(returnStock, connection, transaction))
+                                {
+                                    command.Parameters.AddWithValue("@Diff", -difference);
+                                    command.Parameters.AddWithValue("@StockID", stockID);
+                                    command.ExecuteNonQuery();
+                                }
+                            }
+
+                            string updateItem = @"
+                                UPDATE dbo.OrderItems
+                                SET Quantity = @Quantity
+                                WHERE OrderItemID = @ID";
+
+                            using (SqlCommand command =
+                                new SqlCommand(updateItem, connection, transaction))
+                            {
+                                command.Parameters.AddWithValue("@Quantity", newQuantity);
+                                command.Parameters.AddWithValue("@ID", itemID);
+                                command.ExecuteNonQuery();
+                            }
+
+                            RecalculateTotal(connection, transaction,
+                                Convert.ToInt32(itemsGrid.CurrentRow.Cells["StockItemID"].Value) > 0
+                                ? GetOrderID() : 0);
+
+                            transaction.Commit();
+                        }
+                        catch
+                        {
+                            transaction.Rollback();
+                            throw;
+                        }
+                    }
+                }
+
+                LoadOrders();
+                MessageBox.Show("Количество изменено.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка изменения количества: " + ex.Message);
+            }
+        }
+
+        private void AddItem()
+        {
+            int orderID = GetOrderID();
+
+            if (orderID == 0) return;
+
+            try
+            {
+                string stockList = "";
+
+                using (SqlConnection connection = Database.GetConnection())
+                {
+                    connection.Open();
+
+                    string query = @"
+                        SELECT si.StockItemID,
+                               p.[Наименование товара],
+                               s.[Размер],
+                               si.[Количество доступное для заказа]
+                        FROM dbo.Stock_Items si
+                        INNER JOIN dbo.Products p ON si.ProductID = p.ProductID
+                        LEFT JOIN dbo.Sizes s ON si.SizeID = s.SizeID
+                        WHERE si.[Количество доступное для заказа] > 0
+                        ORDER BY p.[Наименование товара]";
+
+                    using (SqlCommand command = new SqlCommand(query, connection))
+                    using (SqlDataReader reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            stockList +=
+                                "ID " + reader["StockItemID"] +
+                                " | " + reader["Наименование товара"] +
+                                " | Размер: " + reader["Размер"] +
+                                " | Остаток: " + reader["Количество доступное для заказа"] +
+                                Environment.NewLine;
+                        }
+                    }
+                }
+
+                MessageBox.Show(
+                    "Доступные товары. Скопируйте ID нужной позиции:" +
+                    Environment.NewLine + Environment.NewLine + stockList,
+                    "Товары на складе");
+
+                string idText = Microsoft.VisualBasic.Interaction.InputBox(
+                    "Введите StockItemID выбранного товара:",
+                    "Добавление товара");
+
+                if (!int.TryParse(idText, out int stockID)) return;
+
+                string quantityText = Microsoft.VisualBasic.Interaction.InputBox(
+                    "Введите количество пар:",
+                    "Добавление товара",
+                    "1");
+
+                if (!int.TryParse(quantityText, out int quantity) || quantity <= 0)
+                    return;
+
+                using (SqlConnection connection = Database.GetConnection())
+                {
+                    connection.Open();
+
+                    using (SqlTransaction transaction =
+                        connection.BeginTransaction())
+                    {
+                        try
+                        {
+                            decimal price;
+
+                            string priceQuery = @"
+                                SELECT p.[Цена]
+                                FROM dbo.Stock_Items si
+                                INNER JOIN dbo.Products p ON si.ProductID = p.ProductID
+                                WHERE si.StockItemID = @StockID";
+
+                            using (SqlCommand command =
+                                new SqlCommand(priceQuery, connection, transaction))
+                            {
+                                command.Parameters.AddWithValue("@StockID", stockID);
+
+                                object result = command.ExecuteScalar();
+
+                                if (result == null)
+                                    throw new Exception("Товар не найден.");
+
+                                price = Convert.ToDecimal(result);
+                            }
+
+                            string updateStock = @"
+                                UPDATE dbo.Stock_Items
+                                SET [Количество доступное для заказа] =
+                                    [Количество доступное для заказа] - @Quantity
+                                WHERE StockItemID = @StockID
+                                AND [Количество доступное для заказа] >= @Quantity";
+
+                            using (SqlCommand command =
+                                new SqlCommand(updateStock, connection, transaction))
+                            {
+                                command.Parameters.AddWithValue("@Quantity", quantity);
+                                command.Parameters.AddWithValue("@StockID", stockID);
+
+                                if (command.ExecuteNonQuery() == 0)
+                                    throw new Exception("Недостаточно товара на складе.");
+                            }
+
+                            string addQuery = @"
+                                IF EXISTS (
+                                    SELECT 1 FROM dbo.OrderItems
+                                    WHERE OrderID = @OrderID AND StockItemID = @StockID
+                                )
+                                    UPDATE dbo.OrderItems
+                                    SET Quantity = Quantity + @Quantity
+                                    WHERE OrderID = @OrderID AND StockItemID = @StockID
+                                ELSE
+                                    INSERT INTO dbo.OrderItems
+                                        (OrderID, StockItemID, Quantity, UnitPrice)
+                                    VALUES
+                                        (@OrderID, @StockID, @Quantity, @Price)";
+
+                            using (SqlCommand command =
+                                new SqlCommand(addQuery, connection, transaction))
+                            {
+                                command.Parameters.AddWithValue("@OrderID", orderID);
+                                command.Parameters.AddWithValue("@StockID", stockID);
+                                command.Parameters.AddWithValue("@Quantity", quantity);
+                                command.Parameters.AddWithValue("@Price", price);
+                                command.ExecuteNonQuery();
+                            }
+
+                            RecalculateTotal(connection, transaction, orderID);
+
+                            transaction.Commit();
+                        }
+                        catch
+                        {
+                            transaction.Rollback();
+                            throw;
+                        }
+                    }
+                }
+
+                LoadOrders();
+                MessageBox.Show("Товар добавлен в заказ.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка добавления товара: " + ex.Message);
+            }
+        }
+
+        private void DeleteItem()
+        {
+            int itemID = GetOrderItemID();
+
+            if (itemID == 0)
+            {
+                MessageBox.Show("Выберите позицию заказа.");
+                return;
+            }
+
+            if (MessageBox.Show("Удалить выбранную позицию?",
+                "Подтверждение", MessageBoxButtons.YesNo) != DialogResult.Yes)
+                return;
+
+            int orderID = GetOrderID();
+
+            try
+            {
+                using (SqlConnection connection = Database.GetConnection())
+                {
+                    connection.Open();
+
+                    using (SqlTransaction transaction =
+                        connection.BeginTransaction())
+                    {
+                        try
+                        {
+                            string query = @"
+                                SELECT StockItemID, Quantity
+                                FROM dbo.OrderItems WITH (UPDLOCK, HOLDLOCK)
+                                WHERE OrderItemID = @ID";
+
+                            int stockID;
+                            int quantity;
+
+                            using (SqlCommand command =
+                                new SqlCommand(query, connection, transaction))
+                            {
+                                command.Parameters.AddWithValue("@ID", itemID);
+
+                                using (SqlDataReader reader = command.ExecuteReader())
+                                {
+                                    if (!reader.Read())
+                                        throw new Exception("Позиция не найдена.");
+
+                                    stockID = reader.GetInt32(0);
+                                    quantity = reader.GetInt32(1);
+                                }
+                            }
+
+                            string returnStock = @"
+                                UPDATE dbo.Stock_Items
+                                SET [Количество доступное для заказа] =
+                                    [Количество доступное для заказа] + @Quantity
+                                WHERE StockItemID = @StockID";
+
+                            using (SqlCommand command =
+                                new SqlCommand(returnStock, connection, transaction))
+                            {
+                                command.Parameters.AddWithValue("@Quantity", quantity);
+                                command.Parameters.AddWithValue("@StockID", stockID);
+                                command.ExecuteNonQuery();
+                            }
+
+                            using (SqlCommand command = new SqlCommand(
+                                "DELETE FROM dbo.OrderItems WHERE OrderItemID = @ID",
+                                connection, transaction))
+                            {
+                                command.Parameters.AddWithValue("@ID", itemID);
+                                command.ExecuteNonQuery();
+                            }
+
+                            RecalculateTotal(connection, transaction, orderID);
+
+                            transaction.Commit();
+                        }
+                        catch
+                        {
+                            transaction.Rollback();
+                            throw;
+                        }
+                    }
+                }
+
+                LoadOrders();
+                MessageBox.Show("Позиция удалена.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка удаления позиции: " + ex.Message);
+            }
+        }
+
+        private void DeleteOrder()
+        {
+            int orderID = GetOrderID();
+
+            if (orderID == 0) return;
+
+            if (MessageBox.Show(
+                "Удалить заказ целиком? Товары будут возвращены на склад.",
+                "Подтверждение",
+                MessageBoxButtons.YesNo) != DialogResult.Yes)
+                return;
+
+            try
+            {
+                using (SqlConnection connection = Database.GetConnection())
+                {
+                    connection.Open();
+
+                    using (SqlTransaction transaction =
+                        connection.BeginTransaction())
+                    {
+                        try
+                        {
+                            string returnStock = @"
+                                UPDATE si
+                                SET si.[Количество доступное для заказа] =
+                                    si.[Количество доступное для заказа] + x.TotalQuantity
+                                FROM dbo.Stock_Items si
+                                INNER JOIN (
+                                    SELECT StockItemID, SUM(Quantity) AS TotalQuantity
+                                    FROM dbo.OrderItems
+                                    WHERE OrderID = @OrderID
+                                    GROUP BY StockItemID
+                                ) x ON si.StockItemID = x.StockItemID";
+
+                            using (SqlCommand command =
+                                new SqlCommand(returnStock, connection, transaction))
+                            {
+                                command.Parameters.AddWithValue("@OrderID", orderID);
+                                command.ExecuteNonQuery();
+                            }
+
+                            using (SqlCommand command = new SqlCommand(
+                                "DELETE FROM dbo.OrderItems WHERE OrderID = @OrderID",
+                                connection, transaction))
+                            {
+                                command.Parameters.AddWithValue("@OrderID", orderID);
+                                command.ExecuteNonQuery();
+                            }
+
+                            using (SqlCommand command = new SqlCommand(
+                                "DELETE FROM dbo.CustomerOrders WHERE OrderID = @OrderID",
+                                connection, transaction))
+                            {
+                                command.Parameters.AddWithValue("@OrderID", orderID);
+                                command.ExecuteNonQuery();
+                            }
+
+                            transaction.Commit();
+                        }
+                        catch
+                        {
+                            transaction.Rollback();
+                            throw;
+                        }
+                    }
+                }
+
+                LoadOrders();
+                MessageBox.Show("Заказ удалён. Товары возвращены на склад.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка удаления заказа: " + ex.Message);
+            }
+        }
+
+        private void RecalculateTotal(
+            SqlConnection connection,
+            SqlTransaction transaction,
+            int orderID)
+        {
+            string query = @"
+                UPDATE dbo.CustomerOrders
+                SET TotalAmount = ISNULL((
+                    SELECT SUM(Quantity * UnitPrice)
+                    FROM dbo.OrderItems
+                    WHERE OrderID = @OrderID
+                ), 0)
+                WHERE OrderID = @OrderID";
+
+            using (SqlCommand command =
+                new SqlCommand(query, connection, transaction))
+            {
+                command.Parameters.AddWithValue("@OrderID", orderID);
+                command.ExecuteNonQuery();
+            }
+        }
+
+        private void OrdersForm_Load(object sender, EventArgs e)
+        {
+
+        }
+    }
+}
