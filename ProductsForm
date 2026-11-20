@@ -1,0 +1,376 @@
+
+using Microsoft.Data.SqlClient;
+using System;
+using System.Data;
+using System.Windows.Forms;
+
+namespace ChudoObuv
+{
+    public partial class ProductsForm : Form
+    {
+        private DataGridView grid = new DataGridView();
+        private readonly bool isAdmin;
+
+        public ProductsForm(string role)
+        {
+            InitializeComponent();
+
+            isAdmin = role == "Администратор";
+
+            Text = "Управление товарами";
+            Size = new System.Drawing.Size(1100, 650);
+            StartPosition = FormStartPosition.CenterScreen;
+
+            grid.Dock = DockStyle.Fill;
+            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            grid.AllowUserToAddRows = false;
+            grid.ReadOnly = true;
+            grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            grid.MultiSelect = false;
+
+            FlowLayoutPanel panel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 55,
+                AutoSize = false
+            };
+
+            AddButton(panel, "Обновить", LoadProducts);
+
+            if (isAdmin)
+            {
+                AddButton(panel, "Добавить товар", AddProduct);
+                AddButton(panel, "Изменить товар", EditProduct);
+                AddButton(panel, "Удалить товар", DeleteProduct);
+            }
+
+            Controls.Add(grid);
+            Controls.Add(panel);
+
+            LoadProducts();
+        }
+
+        private void AddButton(FlowLayoutPanel panel, string text, Action action)
+        {
+            Button button = new Button
+            {
+                Text = text,
+                Width = 150,
+                Height = 35,
+                Margin = new Padding(5)
+            };
+
+            button.Click += (s, e) => action();
+            panel.Controls.Add(button);
+        }
+
+        private void LoadProducts()
+        {
+            try
+            {
+                using (SqlConnection connection = Database.GetConnection())
+                {
+                    connection.Open();
+
+                    string query = @"
+                        SELECT
+                            ProductID,
+                            [Наименование товара],
+                            [Категория],
+                            [Подкатегория],
+                            [Производство],
+                            [Описание],
+                            [Состав],
+                            [Цена]
+                        FROM dbo.Products
+                        ORDER BY ProductID";
+
+                    using (SqlDataAdapter adapter =
+                        new SqlDataAdapter(query, connection))
+                    {
+                        DataTable table = new DataTable();
+                        adapter.Fill(table);
+                        grid.DataSource = table;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка загрузки товаров: " + ex.Message);
+            }
+        }
+
+        private int GetProductID()
+        {
+            if (grid.CurrentRow == null)
+                return 0;
+
+            return Convert.ToInt32(
+                grid.CurrentRow.Cells["ProductID"].Value);
+        }
+
+        private string Ask(string title, string current = "")
+        {
+            return Microsoft.VisualBasic.Interaction.InputBox(
+                title, "Чудо Обувь", current);
+        }
+
+        private bool GetProductData(
+            string oldName,
+            string oldCategory,
+            string oldSubcategory,
+            string oldManufacturer,
+            string oldDescription,
+            string oldComposition,
+            decimal oldPrice,
+            out string name,
+            out string category,
+            out string subcategory,
+            out string manufacturer,
+            out string description,
+            out string composition,
+            out decimal price)
+        {
+            name = Ask("Введите наименование товара:", oldName);
+            category = Ask("Введите категорию:", oldCategory);
+            subcategory = Ask("Введите подкатегорию:", oldSubcategory);
+            manufacturer = Ask("Введите производство:", oldManufacturer);
+            description = Ask("Введите описание:", oldDescription);
+            composition = Ask("Введите состав:", oldComposition);
+
+            string priceText = Ask(
+                "Введите цену в рублях:",
+                oldPrice.ToString("0.00"));
+
+            if (string.IsNullOrWhiteSpace(name) ||
+                string.IsNullOrWhiteSpace(category) ||
+                string.IsNullOrWhiteSpace(subcategory) ||
+                string.IsNullOrWhiteSpace(manufacturer))
+            {
+                MessageBox.Show("Заполните обязательные поля.");
+                price = 0;
+                return false;
+            }
+
+            if (!decimal.TryParse(priceText,
+                System.Globalization.NumberStyles.Number,
+                System.Globalization.CultureInfo.CurrentCulture,
+                out price) || price <= 0)
+            {
+                MessageBox.Show("Введите правильную цену больше нуля.");
+                return false;
+            }
+
+            return true;
+        }
+
+
+        private void AddProduct()
+        {
+            if (!isAdmin) return;
+
+            using (ProductEditorForm form = new ProductEditorForm())
+            {
+                if (form.ShowDialog() != DialogResult.OK)
+                    return;
+
+                try
+                {
+                    using (SqlConnection connection = Database.GetConnection())
+                    {
+                        connection.Open();
+
+                        string query = @"
+                    INSERT INTO dbo.Products
+                    (
+                        [Категория],
+                        [Подкатегория],
+                        [Изображение],
+                        [Наименование товара],
+                        [Производство],
+                        [Описание],
+                        [Состав],
+                        [Цена]
+                    )
+                    VALUES
+                    (
+                        @Category,
+                        @Subcategory,
+                        N'',
+                        @Name,
+                        @Manufacturer,
+                        @Description,
+                        @Composition,
+                        @Price
+                    )";
+
+                        using (SqlCommand command = new SqlCommand(query, connection))
+                        {
+                            command.Parameters.AddWithValue("@Category", form.Category);
+                            command.Parameters.AddWithValue("@Subcategory", form.Subcategory);
+                            command.Parameters.AddWithValue("@Name", form.ProductName);
+                            command.Parameters.AddWithValue("@Manufacturer", form.Manufacturer);
+                            command.Parameters.AddWithValue("@Description", form.Description);
+                            command.Parameters.AddWithValue("@Composition", form.Composition);
+                            command.Parameters.AddWithValue("@Price", form.Price);
+
+                            command.ExecuteNonQuery();
+                        }
+                    }
+
+                    LoadProducts();
+                    MessageBox.Show("Товар успешно добавлен!");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Ошибка добавления товара: " + ex.Message);
+                }
+            }
+        }
+
+
+        private void EditProduct()
+        {
+            if (!isAdmin) return;
+
+            int id = GetProductID();
+
+            if (id == 0)
+            {
+                MessageBox.Show("Выберите товар.");
+                return;
+            }
+
+            DataGridViewRow row = grid.CurrentRow;
+
+            if (!GetProductData(
+                Convert.ToString(row.Cells["Наименование товара"].Value),
+                Convert.ToString(row.Cells["Категория"].Value),
+                Convert.ToString(row.Cells["Подкатегория"].Value),
+                Convert.ToString(row.Cells["Производство"].Value),
+                Convert.ToString(row.Cells["Описание"].Value),
+                Convert.ToString(row.Cells["Состав"].Value),
+                Convert.ToDecimal(row.Cells["Цена"].Value),
+                out string name,
+                out string category,
+                out string subcategory,
+                out string manufacturer,
+                out string description,
+                out string composition,
+                out decimal price))
+                return;
+
+            try
+            {
+                using (SqlConnection connection = Database.GetConnection())
+                {
+                    connection.Open();
+
+                    string query = @"
+                        UPDATE dbo.Products
+                        SET
+                            [Наименование товара] = @Name,
+                            [Категория] = @Category,
+                            [Подкатегория] = @Subcategory,
+                            [Производство] = @Manufacturer,
+                            [Описание] = @Description,
+                            [Состав] = @Composition,
+                            [Цена] = @Price
+                        WHERE ProductID = @ID";
+
+                    using (SqlCommand command = new SqlCommand(query, connection))
+                    {
+                        AddParameters(command, name, category, subcategory,
+                            manufacturer, description, composition, price);
+
+                        command.Parameters.AddWithValue("@ID", id);
+                        command.ExecuteNonQuery();
+                    }
+                }
+
+                LoadProducts();
+                MessageBox.Show("Информация о товаре изменена.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка изменения товара: " + ex.Message);
+            }
+        }
+
+        private void DeleteProduct()
+        {
+            if (!isAdmin) return;
+
+            int id = GetProductID();
+
+            if (id == 0)
+            {
+                MessageBox.Show("Выберите товар.");
+                return;
+            }
+
+            if (MessageBox.Show(
+                "Удалить выбранный товар?",
+                "Подтверждение",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning) != DialogResult.Yes)
+                return;
+
+            try
+            {
+                using (SqlConnection connection = Database.GetConnection())
+                {
+                    connection.Open();
+
+                    string query = @"
+                        DELETE FROM dbo.Products
+                        WHERE ProductID = @ID
+                        AND NOT EXISTS
+                        (
+                            SELECT 1
+                            FROM dbo.Stock_Items
+                            WHERE ProductID = @ID
+                        )";
+
+                    using (SqlCommand command = new SqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@ID", id);
+
+                        if (command.ExecuteNonQuery() == 0)
+                        {
+                            MessageBox.Show(
+                                "Удаление невозможно: товар связан со складскими позициями.");
+                            return;
+                        }
+                    }
+                }
+
+                LoadProducts();
+                MessageBox.Show("Товар удалён.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Ошибка удаления товара: " + ex.Message);
+            }
+        }
+
+        private void AddParameters(
+            SqlCommand command,
+            string name,
+            string category,
+            string subcategory,
+            string manufacturer,
+            string description,
+            string composition,
+            decimal price)
+        {
+            command.Parameters.AddWithValue("@Name", name);
+            command.Parameters.AddWithValue("@Category", category);
+            command.Parameters.AddWithValue("@Subcategory", subcategory);
+            command.Parameters.AddWithValue("@Manufacturer", manufacturer);
+            command.Parameters.AddWithValue("@Description", description ?? "");
+            command.Parameters.AddWithValue("@Composition", composition ?? "");
+            command.Parameters.AddWithValue("@Price", price);
+        }
+    }
+}
