@@ -1,0 +1,162 @@
+
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace ChudoObuv
+{
+    public partial class Form1 : Form
+    {
+        private string currentRole;
+
+        public Form1(string role)
+        {
+            InitializeComponent();
+            currentRole = role;
+            CreateInterface();
+        }
+
+        private void CreateInterface()
+        {
+            Text = "Чудо Обувь";
+            Size = new Size(1100, 700);
+            StartPosition = FormStartPosition.CenterScreen;
+            BackColor = Color.WhiteSmoke;
+            MinimumSize = new Size(900, 600);
+
+            Panel header = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 80,
+                BackColor = Color.MidnightBlue
+            };
+
+            Label title = new Label
+            {
+                Text = "ЧУДО ОБУВЬ",
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 22, FontStyle.Bold),
+                AutoSize = true,
+                Location = new Point(30, 18)
+            };
+
+            header.Controls.Add(title);
+            Controls.Add(header);
+
+            Label welcome = new Label
+            {
+                Text = "Информационная система магазина обуви",
+                Font = new Font("Segoe UI", 17, FontStyle.Bold),
+                ForeColor = Color.FromArgb(40, 40, 40),
+                AutoSize = true,
+                Location = new Point(35, 115)
+            };
+
+            Controls.Add(welcome);
+
+            string[] buttons =
+            {
+                "Каталог товаров",
+                "Корзина",
+                "Заказы",
+                "Управление товарами",
+                "Пользователи",
+                "Выход"
+            };
+
+            int y = 190;
+
+            foreach (string buttonText in buttons)
+            {
+                Button button = new Button
+                {
+                    Text = buttonText,
+                    Size = new Size(300, 55),
+                    Location = new Point(40, y),
+                    Font = new Font("Segoe UI", 12),
+                    BackColor = Color.White,
+                    ForeColor = Color.MidnightBlue,
+                    FlatStyle = FlatStyle.Flat,
+                    Cursor = Cursors.Hand
+                };
+
+                if (currentRole == "Неавторизованный пользователь")
+                {
+                    button.Visible = buttonText == "Каталог товаров"
+                                  || buttonText == "Выход";
+                }
+                else if (currentRole == "Авторизованный пользователь")
+                {
+                    button.Visible = buttonText == "Каталог товаров"
+                                  || buttonText == "Корзина"
+                                  || buttonText == "Выход";
+                }
+                else if (currentRole == "Менеджер")
+                {
+                    button.Visible = buttonText != "Пользователи";
+                }
+
+                button.FlatAppearance.BorderColor = Color.LightGray;
+
+                if (buttonText == "Каталог товаров")
+                {
+                    button.Click += (sender, e) =>
+                    {
+                        CatalogForm catalog = new CatalogForm();
+                        catalog.ShowDialog();
+                    };
+                }
+
+                if (buttonText == "Корзина")
+                {
+                    button.Click += (sender, e) =>
+                    {
+                        CartForm cart = new CartForm();
+                        cart.ShowDialog();
+                    };
+                }
+
+                if (buttonText == "Заказы")
+                {
+                    button.Click += (sender, e) =>
+                    {
+                        OrdersForm orders = new OrdersForm();
+                        orders.ShowDialog();
+                    };
+                }
+
+                if (buttonText == "Управление товарами")
+                {
+                    button.Click += (sender, e) =>
+                    {
+                        ProductsForm products = new ProductsForm(currentRole);
+                        products.ShowDialog();
+                    };
+                }
+
+                if (buttonText == "Пользователи")
+                {
+                    button.Click += (sender, e) =>
+                    {
+                        UsersForm users = new UsersForm();
+                        users.ShowDialog();
+                    };
+                }
+
+                if (buttonText == "Выход")
+                {
+                    button.Click += (s, e) => Close();
+                }
+
+                Controls.Add(button);
+
+                y += 70;
+            }
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+
+        }
+    }
+}
