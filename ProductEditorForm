@@ -1,0 +1,238 @@
+
+using Microsoft.Data.SqlClient;
+using System;
+using System.Data;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace ChudoObuv
+{
+    public class ProductEditorForm : Form
+    {
+        private ComboBox categoryBox = new ComboBox();
+        private ComboBox subcategoryBox = new ComboBox();
+        private ComboBox manufacturerBox = new ComboBox();
+
+        private TextBox nameBox = new TextBox();
+        private TextBox descriptionBox = new TextBox();
+        private TextBox compositionBox = new TextBox();
+        private TextBox priceBox = new TextBox();
+
+        public string ProductName => nameBox.Text.Trim();
+        public string Category => categoryBox.Text;
+        public string Subcategory => subcategoryBox.Text;
+        public string Manufacturer => manufacturerBox.Text;
+        public string Description => descriptionBox.Text.Trim();
+        public string Composition => compositionBox.Text.Trim();
+        public decimal Price => decimal.Parse(priceBox.Text);
+
+        public ProductEditorForm()
+        {
+            Text = "Добавление товара";
+            Size = new Size(550, 650);
+            StartPosition = FormStartPosition.CenterParent;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+
+            TableLayoutPanel layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(20),
+                ColumnCount = 2,
+                RowCount = 8
+            };
+
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            for (int i = 0; i < 7; i++)
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 55));
+
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
+
+            AddField(layout, "Наименование:", nameBox, 0);
+            AddField(layout, "Категория:", categoryBox, 1);
+            AddField(layout, "Подкатегория:", subcategoryBox, 2);
+            AddField(layout, "Производство:", manufacturerBox, 3);
+            AddField(layout, "Описание:", descriptionBox, 4);
+            AddField(layout, "Состав:", compositionBox, 5);
+            AddField(layout, "Цена (руб.):", priceBox, 6);
+
+            descriptionBox.Multiline = true;
+            compositionBox.Multiline = true;
+
+            Button saveButton = new Button
+            {
+                Text = "Сохранить",
+                Width = 130,
+                Height = 35
+            };
+
+            Button cancelButton = new Button
+            {
+                Text = "Отмена",
+                Width = 130,
+                Height = 35,
+                DialogResult = DialogResult.Cancel
+            };
+
+            FlowLayoutPanel buttons = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.RightToLeft
+            };
+
+            buttons.Controls.Add(cancelButton);
+            buttons.Controls.Add(saveButton);
+
+            layout.Controls.Add(buttons, 1, 7);
+
+            Controls.Add(layout);
+
+            AcceptButton = saveButton;
+            CancelButton = cancelButton;
+
+            categoryBox.SelectedIndexChanged += (s, e) =>
+                LoadSubcategories();
+
+            saveButton.Click += (s, e) => SaveProduct();
+
+            ConfigureCombo(categoryBox);
+            ConfigureCombo(subcategoryBox);
+            ConfigureCombo(manufacturerBox);
+
+            LoadCategories();
+            LoadManufacturers();
+        }
+
+        private void AddField(
+            TableLayoutPanel layout,
+            string title,
+            Control control,
+            int row)
+        {
+            Label label = new Label
+            {
+                Text = title,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+
+            control.Dock = DockStyle.Fill;
+            control.Margin = new Padding(3, 8, 3, 8);
+
+            layout.Controls.Add(label, 0, row);
+            layout.Controls.Add(control, 1, row);
+        }
+
+        private void ConfigureCombo(ComboBox box)
+        {
+            box.DropDownStyle = ComboBoxStyle.DropDownList;
+        }
+
+        private void LoadCategories()
+        {
+            using (SqlConnection connection = Database.GetConnection())
+            {
+                connection.Open();
+
+                string query = @"
+                    SELECT DISTINCT [Категория]
+                    FROM dbo.Products
+                    WHERE [Категория] IS NOT NULL
+                    ORDER BY [Категория]";
+
+                using (SqlCommand command = new SqlCommand(query, connection))
+                using (SqlDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                        categoryBox.Items.Add(reader.GetString(0));
+                }
+            }
+
+            if (categoryBox.Items.Count > 0)
+                categoryBox.SelectedIndex = 0;
+        }
+
+        private void LoadSubcategories()
+        {
+            subcategoryBox.Items.Clear();
+
+            if (categoryBox.SelectedItem == null)
+                return;
+
+            using (SqlConnection connection = Database.GetConnection())
+            {
+                connection.Open();
+
+                string query = @"
+                    SELECT DISTINCT [Подкатегория]
+                    FROM dbo.Products
+                    WHERE [Категория] = @Category
+                    AND [Подкатегория] IS NOT NULL
+                    ORDER BY [Подкатегория]";
+
+                using (SqlCommand command = new SqlCommand(query, connection))
+                {
+                    command.Parameters.AddWithValue(
+                        "@Category", categoryBox.Text);
+
+                    using (SqlDataReader reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                            subcategoryBox.Items.Add(reader.GetString(0));
+                    }
+                }
+            }
+
+            if (subcategoryBox.Items.Count > 0)
+                subcategoryBox.SelectedIndex = 0;
+        }
+
+        private void LoadManufacturers()
+        {
+            using (SqlConnection connection = Database.GetConnection())
+            {
+                connection.Open();
+
+                string query = @"
+                    SELECT DISTINCT [Производство]
+                    FROM dbo.Products
+                    WHERE [Производство] IS NOT NULL
+                    ORDER BY [Производство]";
+
+                using (SqlCommand command = new SqlCommand(query, connection))
+                using (SqlDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                        manufacturerBox.Items.Add(reader.GetString(0));
+                }
+            }
+
+            if (manufacturerBox.Items.Count > 0)
+                manufacturerBox.SelectedIndex = 0;
+        }
+
+        private void SaveProduct()
+        {
+            if (string.IsNullOrWhiteSpace(ProductName) ||
+                categoryBox.SelectedItem == null ||
+                subcategoryBox.SelectedItem == null ||
+                manufacturerBox.SelectedItem == null)
+            {
+                MessageBox.Show("Заполните наименование и выберите все списки.");
+                return;
+            }
+
+            if (!decimal.TryParse(priceBox.Text, out decimal price) || price <= 0)
+            {
+                MessageBox.Show("Введите корректную цену больше нуля.");
+                return;
+            }
+
+            DialogResult = DialogResult.OK;
+            Close();
+        }
+    }
+}
