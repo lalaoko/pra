@@ -1,0 +1,189 @@
+
+using Microsoft.Data.SqlClient;
+using System;
+using System.Data;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace ChudoObuv
+{
+    public partial class CartForm : Form
+    {
+        private DataGridView grid = new DataGridView();
+        private TextBox nameBox = new TextBox();
+        private Button addButton = new Button();
+        private Button deleteButton = new Button();
+        private Button orderButton = new Button();
+
+        public CartForm()
+        {
+            InitializeComponent();
+            CreateInterface();
+            LoadProducts();
+        }
+
+        private void CreateInterface()
+        {
+            Text = "Корзина";
+            Size = new Size(950, 600);
+            StartPosition = FormStartPosition.CenterScreen;
+
+            grid.Dock = DockStyle.Top;
+            grid.Height = 380;
+            grid.ReadOnly = true;
+            grid.AllowUserToAddRows = false;
+            grid.AutoSizeColumnsMode =
+                DataGridViewAutoSizeColumnsMode.Fill;
+
+            Panel panel = new Panel
+            {
+                Dock = DockStyle.Fill
+            };
+
+            addButton.Text = "Добавить товар";
+            addButton.Location = new Point(20, 20);
+            addButton.Click += (s, e) => AddProduct();
+
+            deleteButton.Text = "Удалить из корзины";
+            deleteButton.Location = new Point(170, 20);
+            deleteButton.Click += (s, e) => DeleteProduct();
+
+            nameBox.Location = new Point(20, 75);
+            nameBox.Width = 300;
+            nameBox.PlaceholderText = "ФИО покупателя";
+
+            orderButton.Text = "Оформить заказ";
+            orderButton.Location = new Point(20, 120);
+            orderButton.Size = new Size(180, 40);
+            orderButton.Click += (s, e) => CreateOrder();
+
+            panel.Controls.Add(addButton);
+            panel.Controls.Add(deleteButton);
+            panel.Controls.Add(nameBox);
+            panel.Controls.Add(orderButton);
+
+            Controls.Add(panel);
+            Controls.Add(grid);
+        }
+
+        private void LoadProducts()
+        {
+            using (SqlConnection connection = Database.GetConnection())
+            {
+                connection.Open();
+
+                string query = @"
+                    SELECT
+                        StockItemID,
+                        [Наименование товара],
+                        [Размер],
+                        [Количество доступное для заказа]
+                    FROM dbo.Stock_Items
+                    WHERE [Количество доступное для заказа] > 0";
+
+                using (SqlDataAdapter adapter =
+                    new SqlDataAdapter(query, connection))
+                {
+                    DataTable table = new DataTable();
+                    adapter.Fill(table);
+                    grid.DataSource = table;
+                }
+            }
+        }
+
+        private void AddProduct()
+        {
+            if (grid.CurrentRow == null) return;
+
+            int stockId = Convert.ToInt32(
+                grid.CurrentRow.Cells["StockItemID"].Value);
+
+            string quantityText = Microsoft.VisualBasic.Interaction.InputBox(
+                "Введите количество пар:", "Добавление товара", "1");
+
+            if (!int.TryParse(quantityText, out int quantity) || quantity <= 0)
+                return;
+
+            if (grid.Columns["В корзине"] == null)
+                grid.Columns.Add("В корзине", "В корзине");
+
+            grid.CurrentRow.Cells["В корзине"].Value = quantity;
+            grid.CurrentRow.Cells["StockItemID"].Tag = stockId;
+        }
+
+        private void DeleteProduct()
+        {
+            if (grid.CurrentRow == null) return;
+
+            grid.CurrentRow.Cells["В корзине"].Value = 0;
+        }
+
+        private void CreateOrder()
+        {
+            if (string.IsNullOrWhiteSpace(nameBox.Text))
+            {
+                MessageBox.Show("Введите ФИО покупателя.");
+                return;
+            }
+
+            DataTable items = new DataTable();
+            items.Columns.Add("StockItemID", typeof(int));
+            items.Columns.Add("Quantity", typeof(int));
+
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow ||
+                    !grid.Columns.Contains("В корзине"))
+                    continue;
+
+                int quantity = Convert.ToInt32(
+                    row.Cells["В корзине"].Value ?? 0);
+
+                if (quantity > 0)
+                {
+                    items.Rows.Add(
+                        Convert.ToInt32(row.Cells["StockItemID"].Value),
+                        quantity);
+                }
+            }
+
+            if (items.Rows.Count == 0)
+            {
+                MessageBox.Show("Корзина пуста.");
+                return;
+            }
+
+            using (SqlConnection connection = Database.GetConnection())
+            {
+                connection.Open();
+
+                using (SqlCommand command =
+                    new SqlCommand("sp_CreateOrderMultiple", connection))
+                {
+                    command.CommandType = CommandType.StoredProcedure;
+
+                    command.Parameters.AddWithValue(
+                        "@FullName", nameBox.Text.Trim());
+
+                    SqlParameter parameter =
+                        command.Parameters.AddWithValue("@Items", items);
+
+                    parameter.SqlDbType = SqlDbType.Structured;
+                    parameter.TypeName = "dbo.OrderItemList";
+
+                    using (SqlDataReader reader = command.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            MessageBox.Show(
+                                "Заказ №" + reader["OrderID"] +
+                                "\nСумма: " + reader["TotalAmount"] + " руб.");
+                        }
+                    }
+                }
+            }
+
+            LoadProducts();
+        }
+    }
+}
