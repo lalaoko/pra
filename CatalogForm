@@ -1,0 +1,158 @@
+
+using Microsoft.Data.SqlClient;
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace ChudoObuv
+{
+    public partial class CatalogForm : Form
+    {
+        private DataGridView grid = new DataGridView();
+        private TextBox searchBox = new TextBox();
+        private ComboBox categoryBox = new ComboBox();
+        private Button searchButton = new Button();
+
+        public CatalogForm()
+        {
+            InitializeComponent();
+            CreateCatalog();
+            LoadProducts();
+        }
+
+
+        private void CreateCatalog()
+        {
+            Text = "Каталог товаров";
+            Size = new Size(1100, 650);
+            StartPosition = FormStartPosition.CenterScreen;
+            BackColor = Color.WhiteSmoke;
+
+            Panel topPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 65,
+                BackColor = Color.White
+            };
+
+            searchBox.Location = new Point(15, 18);
+            searchBox.Size = new Size(250, 28);
+            searchBox.PlaceholderText = "Поиск товара...";
+
+            categoryBox.Location = new Point(280, 18);
+            categoryBox.Size = new Size(200, 28);
+            categoryBox.DropDownStyle = ComboBoxStyle.DropDownList;
+
+            searchButton.Text = "Найти";
+            searchButton.Location = new Point(495, 15);
+            searchButton.Size = new Size(100, 35);
+            searchButton.Click += (s, e) => LoadProducts();
+
+            topPanel.Controls.Add(searchBox);
+            topPanel.Controls.Add(categoryBox);
+            topPanel.Controls.Add(searchButton);
+
+            grid.Dock = DockStyle.Fill;
+            grid.AutoSizeColumnsMode =
+                DataGridViewAutoSizeColumnsMode.Fill;
+            grid.ReadOnly = true;
+            grid.AllowUserToAddRows = false;
+            grid.SelectionMode =
+                DataGridViewSelectionMode.FullRowSelect;
+            grid.BackgroundColor = Color.White;
+
+            Controls.Add(grid);
+            Controls.Add(topPanel);
+
+            LoadCategories();
+        }
+
+
+
+        private void LoadProducts()
+        {
+            try
+            {
+                using (SqlConnection connection = Database.GetConnection())
+                {
+                    connection.Open();
+
+                    string query = @"
+    SELECT
+        P.ProductID,
+        P.[Наименование товара],
+        P.[Категория],
+        P.[Подкатегория],
+        P.[Производство],
+        P.[Цена],
+        STRING_AGG(
+            CAST(S.[Размер] AS NVARCHAR(10)), ', '
+        ) AS [Доступные размеры],
+        SUM(SI.[Количество доступное для заказа]) AS [Общий остаток]
+    FROM dbo.Products P
+    INNER JOIN dbo.Stock_Items SI
+        ON P.ProductID = SI.ProductID
+    INNER JOIN dbo.Sizes S
+        ON SI.SizeID = S.SizeID
+    WHERE P.[Наименование товара] LIKE @Search
+      AND (@Category = N'Все категории'
+           OR P.[Категория] = @Category)
+      AND SI.[Количество доступное для заказа] > 0
+    GROUP BY
+        P.ProductID,
+        P.[Наименование товара],
+        P.[Категория],
+        P.[Подкатегория],
+        P.[Производство],
+        P.[Цена]
+    ORDER BY P.[Наименование товара]";
+
+                    using (SqlCommand command = new SqlCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue(
+                            "@Search", "%" + searchBox.Text.Trim() + "%");
+
+                        command.Parameters.AddWithValue(
+                            "@Category", categoryBox.Text);
+
+                        using (SqlDataAdapter adapter = new SqlDataAdapter(command))
+                        {
+                            System.Data.DataTable table =
+                                new System.Data.DataTable();
+
+                            adapter.Fill(table);
+                            grid.DataSource = table;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Ошибка загрузки каталога: " + ex.Message);
+            }
+        }
+
+
+        private void LoadCategories()
+        {
+            using (SqlConnection connection = Database.GetConnection())
+            {
+                connection.Open();
+
+                using (SqlCommand command = new SqlCommand(
+                    "SELECT DISTINCT [Категория] FROM dbo.Products ORDER BY [Категория]",
+                    connection))
+                using (SqlDataReader reader = command.ExecuteReader())
+                {
+                    categoryBox.Items.Add("Все категории");
+
+                    while (reader.Read())
+                        categoryBox.Items.Add(reader.GetString(0));
+                }
+            }
+
+            categoryBox.SelectedIndex = 0;
+        }
+    }
+}
